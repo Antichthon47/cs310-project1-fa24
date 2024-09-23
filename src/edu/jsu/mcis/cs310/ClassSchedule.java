@@ -34,14 +34,195 @@ public class ClassSchedule {
     
     public String convertCsvToJsonString(List<String[]> csv) {
         
-        return ""; // remove this!
+        if (csv == null || csv.isEmpty()) {
+            return "{}";
+        }
         
+        Iterator<String[]> csvIterator = csv.iterator();
+        String[] headers = csvIterator.next(); // Get headers
+        
+        List<String> headerList = new ArrayList<>();
+        for (String header : headers) {
+            headerList.add(header);
+        }
+
+        // Validate required headers
+        String[] requiredHeaders = {
+            TYPE_COL_HEADER, SCHEDULE_COL_HEADER, NUM_COL_HEADER,
+            SUBJECT_COL_HEADER, DESCRIPTION_COL_HEADER, CREDITS_COL_HEADER,
+            CRN_COL_HEADER, SECTION_COL_HEADER, START_COL_HEADER, END_COL_HEADER,
+            DAYS_COL_HEADER, WHERE_COL_HEADER, INSTRUCTOR_COL_HEADER
+        };
+
+        for (String header : requiredHeaders) {
+            if (!headerList.contains(header)) {
+                throw new IllegalArgumentException("Missing required header: " + header);
+            }
+        }
+        
+        JsonObject scheduleTypeMap = new JsonObject();
+        JsonObject subjectMap = new JsonObject();
+        JsonObject courseMap = new JsonObject();
+        JsonArray sectionArray = new JsonArray();
+
+        while (csvIterator.hasNext()) {
+            String[] rowData = csvIterator.next();
+            try {
+                String type = getValue(rowData, headerList, TYPE_COL_HEADER);
+                String schedule = getValue(rowData, headerList, SCHEDULE_COL_HEADER);
+                
+                if (!scheduleTypeMap.containsKey(type)) {
+                    scheduleTypeMap.put(type, schedule);
+                }
+
+                String num = getValue(rowData, headerList, NUM_COL_HEADER);
+                String subjectId = num.replaceAll("\\d", "").replaceAll("\\s", "");
+                
+                if (!subjectMap.containsKey(subjectId)) {
+                    String subjectHeader = getValue(rowData, headerList, SUBJECT_COL_HEADER);
+                    subjectMap.put(subjectId, subjectHeader);
+                }
+                
+                String numNoLetters = num.replaceAll("[A-Z]", "").replaceAll("\\s", "");
+                
+                if (!courseMap.containsKey(num)) {
+                    String description = getValue(rowData, headerList, DESCRIPTION_COL_HEADER);
+                    String creditsStr = getValue(rowData, headerList, CREDITS_COL_HEADER);
+                    int credits = parseInteger(creditsStr, 0);
+                    
+                    JsonObject course = new JsonObject();
+                    course.put(SUBJECTID_COL_HEADER, subjectId);
+                    course.put(NUM_COL_HEADER, numNoLetters);
+                    course.put(DESCRIPTION_COL_HEADER, description);
+                    course.put(CREDITS_COL_HEADER, credits);
+                    courseMap.put(num, course);
+                }
+
+                String crnStr = getValue(rowData, headerList, CRN_COL_HEADER);
+                int crn = parseInteger(crnStr, 0);
+                String sectionHeader = getValue(rowData, headerList, SECTION_COL_HEADER);
+                String start = getValue(rowData, headerList, START_COL_HEADER);
+                String end = getValue(rowData, headerList, END_COL_HEADER);
+                String days = getValue(rowData, headerList, DAYS_COL_HEADER);
+                String where = getValue(rowData, headerList, WHERE_COL_HEADER);
+                String allInstructors = getValue(rowData, headerList, INSTRUCTOR_COL_HEADER);
+                
+                List<String> instructors = new ArrayList<>();
+                if (allInstructors != null && !allInstructors.isEmpty()) {
+                    String[] instArray = allInstructors.split(",\\s*");
+                    for (String inst : instArray) {
+                        instructors.add(inst);
+                    }
+                }
+
+                JsonArray instructorArray = new JsonArray();
+                for (String instructor : instructors) {
+                    instructorArray.add(instructor);
+                }
+
+                JsonObject sectionDetails = new JsonObject();
+                sectionDetails.put(CRN_COL_HEADER, crn);
+                sectionDetails.put(SECTION_COL_HEADER, sectionHeader);
+                sectionDetails.put(START_COL_HEADER, start);
+                sectionDetails.put(END_COL_HEADER, end);
+                sectionDetails.put(DAYS_COL_HEADER, days);
+                sectionDetails.put(WHERE_COL_HEADER, where);
+                sectionDetails.put(INSTRUCTOR_COL_HEADER, instructorArray);
+                sectionDetails.put(NUM_COL_HEADER, numNoLetters);
+                sectionDetails.put(TYPE_COL_HEADER, type);
+                sectionDetails.put(SUBJECTID_COL_HEADER, subjectId);
+
+                sectionArray.add(sectionDetails);
+            } catch (Exception e) {
+                // Handle exception, e.g., log and skip this row
+                continue;
+            }
+        }
+
+        JsonObject courseListMap = new JsonObject();
+        courseListMap.put("scheduletype", scheduleTypeMap);
+        courseListMap.put("subject", subjectMap);
+        courseListMap.put("course", courseMap);
+        courseListMap.put("section", sectionArray);
+        
+        return Jsoner.serialize(courseListMap);
     }
-    
+
+    private String getValue(String[] rowData, List<String> headerList, String columnHeader) {
+        int index = headerList.indexOf(columnHeader);
+        if (index < 0 || index >= rowData.length) {
+            return null;
+        }
+        return rowData[index];
+    }
+
+    private int parseInteger(String value, int defaultValue) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
     public String convertJsonToCsvString(JsonObject json) {
+        StringWriter writer = new StringWriter();
+        CSVWriter csvWriter = new CSVWriter(writer, '\t', '"', '\\', "\n");
         
-        return ""; // remove this!
+        String[] header = {
+            CRN_COL_HEADER, SUBJECT_COL_HEADER, NUM_COL_HEADER, DESCRIPTION_COL_HEADER,
+            SECTION_COL_HEADER, TYPE_COL_HEADER, CREDITS_COL_HEADER, START_COL_HEADER,
+            END_COL_HEADER, DAYS_COL_HEADER, WHERE_COL_HEADER, SCHEDULE_COL_HEADER,
+            INSTRUCTOR_COL_HEADER
+        };
+        csvWriter.writeNext(header);
         
+        JsonObject scheduleTypeMap = (JsonObject) json.get("scheduletype");
+        JsonObject subjectMap = (JsonObject) json.get("subject");
+        JsonObject courseMap = (JsonObject) json.get("course");
+        JsonArray sectionArray = (JsonArray) json.get("section");
+
+        for (Object obj : sectionArray) {
+            if (obj instanceof JsonObject) {
+                JsonObject sectionDetails = (JsonObject) obj;
+                try {
+                    String crn = String.valueOf(sectionDetails.get(CRN_COL_HEADER));
+                    String subjectId = (String) sectionDetails.get(SUBJECTID_COL_HEADER);
+                    String num = subjectId + " " + sectionDetails.get(NUM_COL_HEADER);
+                    String section = (String) sectionDetails.get(SECTION_COL_HEADER);
+                    String type = (String) sectionDetails.get(TYPE_COL_HEADER);
+                    String start = (String) sectionDetails.get(START_COL_HEADER);
+                    String end = (String) sectionDetails.get(END_COL_HEADER);
+                    String days = (String) sectionDetails.get(DAYS_COL_HEADER);
+                    String where = (String) sectionDetails.get(WHERE_COL_HEADER);
+                    JsonArray instructorArray = (JsonArray) sectionDetails.get(INSTRUCTOR_COL_HEADER);
+                    
+                    StringBuilder instructorBuilder = new StringBuilder();
+                    for (int j = 0; j < instructorArray.size(); j++) {
+                        instructorBuilder.append(instructorArray.getString(j));
+                        if (j < instructorArray.size() - 1) {
+                            instructorBuilder.append(", ");
+                        }
+                    }
+                    
+                    String instructor = instructorBuilder.toString();
+                    String schedule = (String) scheduleTypeMap.get(type);
+                    JsonObject courseDetails = (JsonObject) courseMap.get(num);
+                    String description = (String) courseDetails.get(DESCRIPTION_COL_HEADER);
+                    String credits = String.valueOf(courseDetails.get(CREDITS_COL_HEADER));
+                    String subjectName = (String) subjectMap.get(subjectId);
+                    String[] record = {
+                        crn, subjectName, num, description, section, type, credits,
+                        start, end, days, where, schedule, instructor
+                    };
+                    csvWriter.writeNext(record);
+                } catch (Exception e) {
+                    // Handle exception, e.g., log and skip this section
+                    continue;
+                }
+            }
+        }
+        
+        return writer.toString();
     }
     
     public JsonObject getJson() {
